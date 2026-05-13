@@ -1,5 +1,5 @@
 """BiRefNet 单图推理脚本。用法: python infer.py --input in.jpg --output mask.png"""
-import argparse, sys
+import argparse, sys, os
 sys.path.insert(0, '.')
 import torch, torch.nn.functional as F
 from torchvision import transforms
@@ -8,46 +8,37 @@ from transformers import AutoModelForImageSegmentation
 
 MEAN = [0.485, 0.456, 0.406]
 STD  = [0.229, 0.224, 0.225]
-MAX_SIZE = 3096
-MIN_SIZE = 256
-ALIGN = 32
+MODEL_SIZE = (1024, 1024)
+MODEL_PATH = os.path.join(os.path.dirname(__file__), 'models', 'pretrained')
+HF_REPO = 'zhengpeng7/BiRefNet'
 
 TRANSFORM = transforms.Compose([
     transforms.ToTensor(),
     transforms.Normalize(MEAN, STD),
 ])
 
-_cache = {}  # 单例模型，避免重复加载
+_cache = {}
+
+def _resolve_model_source():
+    if os.path.isfile(os.path.join(MODEL_PATH, 'model.safetensors')):
+        return MODEL_PATH
+    print('本地模型不存在，从 HuggingFace 下载...')
+    return HF_REPO
 
 def get_model():
     if 'model' not in _cache:
         _cache['model'] = AutoModelForImageSegmentation.from_pretrained(
-            'zhengpeng7/BiRefNet', trust_remote_code=True
+            _resolve_model_source(), trust_remote_code=True
         ).cuda().eval()
     return _cache['model']
-
-def smart_resize(image, max_size=MAX_SIZE, min_size=MIN_SIZE, align=ALIGN):
-    w, h = image.size
-    max_edge, min_edge = max(w, h), min(w, h)
-    if max_edge > max_size:
-        scale = max_size / max_edge
-        w, h = round(w * scale), round(h * scale)
-    elif min_edge < min_size:
-        scale = min_size / min_edge
-        w, h = round(w * scale), round(h * scale)
-    w = ((w + align - 1) // align) * align
-    h = ((h + align - 1) // align) * align
-    if (w, h) != image.size:
-        image = image.resize((w, h), resample=Image.LANCZOS)
-    return image
 
 def remove_background(image: Image.Image) -> Image.Image:
     """输入 PIL Image (RGB)，返回去除背景的 RGBA 图。"""
     model = get_model()
     original_size = (image.height, image.width)
 
-    # 预处理
-    img = smart_resize(image.convert('RGB'))
+    # 预处理: 统一缩放到 1024x1024
+    img = image.convert('RGB').resize(MODEL_SIZE, resample=Image.LANCZOS)
     tensor = TRANSFORM(img).unsqueeze(0).cuda()
 
     # 推理
@@ -55,9 +46,9 @@ def remove_background(image: Image.Image) -> Image.Image:
         logits = model(tensor)[-1]
         mask = torch.sigmoid(logits).float()
 
-    # 后处理：还原原始分辨率
+    # 后处理: 还原原始分辨率
     mask = F.interpolate(mask, size=original_size, mode='bilinear', align_corners=True)
-    mask = mask.squeeze().cpu().numpy()  # (H, W), 值域 [0, 1]
+    mask = mask.squeeze().cpu().numpy()
 
     # 合成 RGBA
     rgba = image.convert('RGBA')
@@ -80,14 +71,13 @@ def main():
         # 只输出灰度 mask
         model = get_model()
         original_size = (image.height, image.width)
-        img = smart_resize(image.convert('RGB'))
+        img = image.convert('RGB').resize(MODEL_SIZE, resample=Image.LANCZOS)
         tensor = TRANSFORM(img).unsqueeze(0).cuda()
         with torch.amp.autocast('cuda', dtype=torch.float16), torch.no_grad():
             logits = model(tensor)[-1]
             mask = torch.sigmoid(logits).float()
         mask = F.interpolate(mask, size=original_size, mode='bilinear', align_corners=True)
-        mask_np = (mask.squeeze().cpu().numpy() * 255).astype('uint8')
-        Image.fromarray(mask_np).save(args.output)
+        Image.fromarray((mask.squeeze().cpu().numpy() * 255).astype('uint8')).save(args.output)
     else:
         # 背景去除 (RGBA)
         result = remove_background(image)

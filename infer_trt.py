@@ -1,5 +1,5 @@
 """BiRefNet TensorRT 推理入口。需要先执行 build_trt_engine.py 生成 engine 文件。"""
-import argparse
+import argparse, os
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -9,7 +9,7 @@ import tensorrt as trt
 
 MEAN = [0.485, 0.456, 0.406]
 STD = [0.229, 0.224, 0.225]
-ENGINE_PATH = "birefnet_fp16_fixed.engine"
+ENGINE_PATH = os.path.join(os.path.dirname(__file__), "models", "pretrained", "birefnet_fp16_fixed.engine")
 ENGINE_SIZE = (1024, 1024)
 
 TRANSFORM = transforms.Compose([

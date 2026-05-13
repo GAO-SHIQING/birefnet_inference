@@ -5,7 +5,7 @@ import tensorrt as trt
 import numpy as np
 
 ONNX_PATH = "birefnet_fixed.onnx"  # 固定形状版本（规避 Swin 窗格动态 reshape）
-ENGINE_PATH = "birefnet_fp16_fixed.engine"
+ENGINE_PATH = os.path.join(os.path.dirname(__file__), "models", "pretrained", "birefnet_fp16_fixed.engine")
 
 TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
 

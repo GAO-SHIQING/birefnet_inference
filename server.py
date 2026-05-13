@@ -1,5 +1,5 @@
 """BiRefNet 推理 API 服务 (FastAPI, 不依赖 Triton)"""
-import io
+import io, os
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -11,9 +11,17 @@ from fastapi.responses import Response
 MEAN = [0.485, 0.456, 0.406]
 STD = [0.229, 0.224, 0.225]
 
-ENGINE_PATH = "birefnet_fp16_fixed.engine"
+BASE_DIR = os.path.dirname(__file__)
+MODEL_PATH = os.path.join(BASE_DIR, 'models', 'pretrained')
+ENGINE_PATH = os.path.join(MODEL_PATH, "birefnet_fp16_fixed.engine")
 ENGINE_SIZE = (1024, 1024)
 USE_TRT = True  # 设为 False 则使用 PyTorch
+
+def _resolve_model_source():
+    if os.path.isfile(os.path.join(MODEL_PATH, 'model.safetensors')):
+        return MODEL_PATH
+    print('本地模型不存在，从 HuggingFace 下载...')
+    return 'zhengpeng7/BiRefNet'
 
 _transform = transforms.Compose([
     transforms.ToTensor(),
@@ -49,8 +57,9 @@ async def startup():
         print(f"TRT Engine 加载完成 ({ENGINE_PATH})")
     else:
         from transformers import AutoModelForImageSegmentation
+        source = _resolve_model_source()
         _model = AutoModelForImageSegmentation.from_pretrained(
-            'zhengpeng7/BiRefNet', trust_remote_code=True
+            source, trust_remote_code=True
         ).cuda().eval()
         print("PyTorch 模型加载完成")
 
