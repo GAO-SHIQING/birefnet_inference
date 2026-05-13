@@ -1,0 +1,42 @@
+name: "birefnet_2048"
+platform: "tensorrt_plan"
+max_batch_size: 4
+
+input [
+  {
+    name: "input_image"
+    data_type: TYPE_FP32
+    dims: [ 3, 2048, 2048 ]
+  }
+]
+output [
+  {
+    name: "output_logits"
+    data_type: TYPE_FP32
+    dims: [ 1, 2048, 2048 ]
+  }
+]
+
+instance_group [
+  {
+    count: 2
+    kind: KIND_GPU
+    gpus: [ 0 ]
+  }
+]
+
+# 预热——TRT 首次推理构建 CUDA kernel 耗时数百毫秒
+model_warmup [
+  {
+    name: "warmup_sample"
+    batch_size: 1
+    inputs: {
+      key: "input_image"
+      value: {
+        data_type: TYPE_FP32
+        dims: [ 3, 2048, 2048 ]
+        random_data: true
+      }
+    }
+  }
+]

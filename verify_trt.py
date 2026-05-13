@@ -8,7 +8,7 @@ import tensorrt as trt
 
 MEAN = [0.485, 0.456, 0.406]
 STD = [0.229, 0.224, 0.225]
-ENGINE_PATH = "birefnet_fp16_fixed.engine"
+ENGINE_PATH = "models/pretrained/birefnet_fp16_fixed.engine"
 
 # 加载 TRT Engine
 with open(ENGINE_PATH, 'rb') as f:
@@ -42,7 +42,7 @@ tensor_np = transform_fn(img).unsqueeze(0).numpy().astype(np.float32)
 # PyTorch 基准
 from transformers import AutoModelForImageSegmentation
 model_pt = AutoModelForImageSegmentation.from_pretrained(
-    'zhengpeng7/BiRefNet', trust_remote_code=True
+    'models/pretrained', trust_remote_code=True
 ).float().eval()
 with torch.no_grad():
     out_pt = model_pt(torch.from_numpy(tensor_np))[-1].sigmoid()

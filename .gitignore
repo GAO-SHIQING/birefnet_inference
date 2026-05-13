@@ -3,12 +3,17 @@
 *.engine
 *.plan
 
-# 模型权重 (需自行下载放入 models/pretrained/)
+# 模型权重 (需自行下载放入 models/pretrained/ 或 models/dynamic/)
 *.pth
 *.bin
 *.safetensors
 models/pretrained/model.safetensors
 models/pretrained/config.json
+models/dynamic/model.safetensors
+models/dynamic/config.json
+
+# model_repo 中的大文件 (config.pbtxt 保留)
+model_repo/*/1/
 
 # Python
 __pycache__/
@@ -18,3 +23,7 @@ __pycache__/
 # IDE
 .idea/
 .vscode/
+
+# 临时文件
+*.log
+/tmp/

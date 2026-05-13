@@ -7,15 +7,28 @@ import deform_conv2d_onnx_exporter
 deform_conv2d_onnx_exporter.register_deform_conv2d_onnx_op()
 print("[1] deform_conv2d ONNX 算子已注册")
 
+SCRIPT_DIR = os.path.dirname(__file__)
 
-def export_onnx(model_name, resolution, out_path, dynamic=True):
+MODELS = {
+    'birefnet': {
+        'model_path': os.path.join(SCRIPT_DIR, 'models', 'pretrained'),
+        'onnx_path': os.path.join(SCRIPT_DIR, 'birefnet_1024_fixed.onnx'),
+    },
+    'birefnet_dynamic': {
+        'model_path': os.path.join(SCRIPT_DIR, 'models', 'dynamic'),
+        'onnx_path': os.path.join(SCRIPT_DIR, 'birefnet_dynamic_1024_fixed.onnx'),
+    },
+}
+
+
+def export_onnx(model_path, resolution, out_path, dynamic=False):
     from transformers import AutoModelForImageSegmentation
     model = AutoModelForImageSegmentation.from_pretrained(
-        model_name, trust_remote_code=True
+        model_path, trust_remote_code=True
     )
     model = model.float().eval()
     H, W = resolution
-    print(f"[2] {model_name}: FP32 CPU, size={H}x{W}")
+    print(f"[2] {model_path}: FP32 CPU, size={H}x{W}")
 
     dummy = torch.randn(1, 3, H, W)
     kwargs = dict(
@@ -37,13 +50,15 @@ def export_onnx(model_name, resolution, out_path, dynamic=True):
 
 
 if __name__ == '__main__':
-    # 动态轴 (用于 ORT 对比)
-    export_onnx('zhengpeng7/BiRefNet', (1024, 1024), 'birefnet_dynamic.onnx', dynamic=True)
+    import argparse
+    parser = argparse.ArgumentParser(description='Export BiRefNet to ONNX')
+    parser.add_argument('--model', '-m', choices=list(MODELS.keys()), default='birefnet',
+                        help='Which model to export')
+    args = parser.parse_args()
 
-    # 固定 1024² (用于 TRT, 规避 Swin 窗格动态 reshape)
-    export_onnx('zhengpeng7/BiRefNet', (1024, 1024), 'birefnet_1024_fixed.onnx', dynamic=False)
+    cfg = MODELS[args.model]
+    export_onnx(cfg['model_path'], (1024, 1024), cfg['onnx_path'], dynamic=False)
 
     print("\n---")
-    print("2048² 导出在 12GB 卡上 FP32 CPU 导出也 OOM，需 24GB+ 机器执行。")
-    print("BiRefNet_dynamic/HR 的 birefnet.py MD5 与标准版一致，架构相同，TRT 动态形状问题通用。")
-    print("换模型: 改 model_name 参数即可。")
+    print("TRT 引擎仅支持固定 1024x1024 分辨率 (Swin Transformer 窗格限制)。")
+    print("换模型: 修改 --model 参数即可。")

@@ -4,12 +4,25 @@ sys.path.insert(0, '.')
 import tensorrt as trt
 import numpy as np
 
-ONNX_PATH = "birefnet_fixed.onnx"  # 固定形状版本（规避 Swin 窗格动态 reshape）
-ENGINE_PATH = os.path.join(os.path.dirname(__file__), "models", "pretrained", "birefnet_fp16_fixed.engine")
-
+SCRIPT_DIR = os.path.dirname(__file__)
 TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
 
-def build_engine(onnx_path, engine_path, fp16=True):
+# 模型配置: (ONNX文件名, Engine输出路径, 分辨率)
+MODELS = {
+    'birefnet': (
+        os.path.join(SCRIPT_DIR, 'birefnet_1024_fixed.onnx'),
+        os.path.join(SCRIPT_DIR, 'models', 'pretrained', 'birefnet_fp16_fixed.engine'),
+        (1024, 1024),
+    ),
+    'birefnet_dynamic': (
+        os.path.join(SCRIPT_DIR, 'birefnet_dynamic_1024_fixed.onnx'),
+        os.path.join(SCRIPT_DIR, 'models', 'dynamic', 'birefnet_dynamic_fp16_fixed.engine'),
+        (1024, 1024),
+    ),
+}
+
+def build_engine(onnx_path, engine_path, resolution, fp16=True):
+    H, W = resolution
     builder = trt.Builder(TRT_LOGGER)
     network = builder.create_network(
         1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
@@ -35,9 +48,9 @@ def build_engine(onnx_path, engine_path, fp16=True):
     # 固定形状 (避免 Swin Transformer 动态窗格 reshape 冲突)
     profile = builder.create_optimization_profile()
     profile.set_shape("input_image",
-                      (1, 3, 1024, 1024),     # min
-                      (1, 3, 1024, 1024),     # opt
-                      (1, 3, 1024, 1024))     # max
+                      (1, 3, H, W),     # min
+                      (1, 3, H, W),     # opt
+                      (1, 3, H, W))     # max
     config.add_optimization_profile(profile)
 
     print(f"[构建] 开始构建 TensorRT Engine (FP{'16' if fp16 else '32'})...")
@@ -48,6 +61,7 @@ def build_engine(onnx_path, engine_path, fp16=True):
     if engine is None:
         raise RuntimeError("Engine 构建失败 (engine is None)")
 
+    os.makedirs(os.path.dirname(engine_path), exist_ok=True)
     with open(engine_path, 'wb') as f:
         f.write(engine)
 
@@ -60,4 +74,16 @@ def build_engine(onnx_path, engine_path, fp16=True):
 
 
 if __name__ == '__main__':
-    build_engine(ONNX_PATH, ENGINE_PATH, fp16=True)
+    import argparse
+    parser = argparse.ArgumentParser(description='Build TensorRT Engine from ONNX')
+    parser.add_argument('--model', '-m', choices=list(MODELS.keys()), default='birefnet',
+                        help='Which model to build')
+    parser.add_argument('--fp32', action='store_true', help='Use FP32 instead of FP16')
+    args = parser.parse_args()
+
+    onnx_path, engine_path, resolution = MODELS[args.model]
+    if not os.path.exists(onnx_path):
+        print(f"ONNX 文件不存在: {onnx_path}")
+        print("请先运行 export_onnx.py 导出 ONNX 模型")
+        sys.exit(1)
+    build_engine(onnx_path, engine_path, resolution, fp16=not args.fp32)
