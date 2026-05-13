@@ -1,0 +1,20 @@
+# 编译产物
+*.onnx
+*.engine
+*.plan
+
+# 模型权重 (需自行下载放入 models/pretrained/)
+*.pth
+*.bin
+*.safetensors
+models/pretrained/model.safetensors
+models/pretrained/config.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# IDE
+.idea/
+.vscode/
