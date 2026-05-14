@@ -10,7 +10,7 @@ import torch.nn.functional as F
 from torchvision import transforms
 from PIL import Image
 from fastapi import FastAPI, UploadFile, File, Query
-from fastapi.responses import Response
+from fastapi.responses import Response, HTMLResponse
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 logger = logging.getLogger(__name__)
@@ -319,6 +319,141 @@ async def health():
     }
 
 
+@app.get('/', response_class=HTMLResponse)
+async def index():
+    return """
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BiRefNet 背景去除</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f0f0f; color: #e0e0e0; min-height: 100vh; display: flex; justify-content: center; padding: 40px 16px; }
+  .container { max-width: 900px; width: 100%; }
+  h1 { text-align: center; font-size: 1.6rem; margin-bottom: 8px; }
+  .sub { text-align: center; color: #888; font-size: 0.85rem; margin-bottom: 28px; }
+  .panel { display: flex; gap: 20px; flex-wrap: wrap; }
+  .panel > div { flex: 1; min-width: 280px; background: #1a1a1a; border: 2px dashed #333; border-radius: 12px; padding: 20px; text-align: center; }
+  .panel img { max-width: 100%; max-height: 400px; border-radius: 8px; display: none; }
+  .placeholder { color: #666; padding: 60px 0; font-size: 0.9rem; }
+  input[type=file] { display: none; }
+  .btn { display: inline-block; padding: 10px 28px; border-radius: 8px; border: none; cursor: pointer; font-size: 0.95rem; transition: all .2s; }
+  .btn-up { background: #3b82f6; color: #fff; }
+  .btn-up:hover { background: #2563eb; }
+  .btn-down { background: #22c55e; color: #fff; margin-top: 10px; }
+  .btn-down:hover { background: #16a34a; }
+  .actions { text-align: center; margin: 24px 0; }
+  .spinner { display: none; width: 40px; height: 40px; border: 3px solid #333; border-top-color: #3b82f6; border-radius: 50%; animation: spin .7s linear infinite; margin: 20px auto; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .error { color: #ef4444; text-align: center; display: none; margin-top: 12px; }
+  .info { display: flex; justify-content: center; gap: 20px; font-size: 0.8rem; color: #666; margin-top: 16px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>BiRefNet 背景去除</h1>
+  <p class="sub">上传图片，AI 自动抠图</p>
+
+  <div class="panel">
+    <div id="inputBox">
+      <p class="placeholder">原始图片</p>
+      <img id="inputImg" alt="原始图片">
+    </div>
+    <div id="outputBox">
+      <p class="placeholder">去背景结果</p>
+      <img id="outputImg" alt="去背景结果">
+    </div>
+  </div>
+
+  <div class="actions">
+    <input type="file" id="fileInput" accept="image/*">
+    <label for="fileInput" class="btn btn-up">选择图片</label>
+    <button class="btn btn-down" id="downloadBtn" style="display:none" onclick="downloadResult()">下载结果</button>
+  </div>
+
+  <div class="spinner" id="spinner"></div>
+  <p class="error" id="error"></p>
+  <div class="info"><span id="engineInfo"></span><span id="timeInfo"></span></div>
+</div>
+
+<script>
+  const fileInput = document.getElementById('fileInput');
+  const inputImg = document.getElementById('inputImg');
+  const outputImg = document.getElementById('outputImg');
+  const spinner = document.getElementById('spinner');
+  const errorEl = document.getElementById('error');
+  const downloadBtn = document.getElementById('downloadBtn');
+  const engineInfo = document.getElementById('engineInfo');
+  const timeInfo = document.getElementById('timeInfo');
+
+  fileInput.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // 显示原图
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      inputImg.src = ev.target.result;
+      inputImg.style.display = 'block';
+      document.querySelector('#inputBox .placeholder').style.display = 'none';
+    };
+    reader.readAsDataURL(file);
+
+    // 推理
+    outputImg.style.display = 'none';
+    document.querySelector('#outputBox .placeholder').style.display = '';
+    errorEl.style.display = 'none';
+    spinner.style.display = 'block';
+    downloadBtn.style.display = 'none';
+
+    const formData = new FormData();
+    formData.append('image', file);
+    const start = performance.now();
+    try {
+      const resp = await fetch('/segment', { method: 'POST', body: formData });
+      if (!resp.ok) throw new Error(await resp.text());
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      outputImg.src = url;
+      outputImg.style.display = 'block';
+      outputImg._blobUrl = url;
+      document.querySelector('#outputBox .placeholder').style.display = 'none';
+      downloadBtn.style.display = 'inline-block';
+      timeInfo.textContent = `耗时: ${((performance.now() - start) / 1000).toFixed(1)}s`;
+    } catch (err) {
+      errorEl.textContent = '推理失败: ' + err.message;
+      errorEl.style.display = 'block';
+    } finally {
+      spinner.style.display = 'none';
+    }
+  });
+
+  async function downloadResult() {
+    const a = document.createElement('a');
+    a.href = outputImg._blobUrl || outputImg.src;
+    a.download = 'result.png';
+    a.click();
+  }
+
+  // 加载引擎信息
+  (async () => {
+    try {
+      const resp = await fetch('/health');
+      const data = await resp.json();
+      engineInfo.textContent = `引擎: ${data.backend} | 可用: [${data.engines.join(', ')}]`;
+    } catch {}
+  })();
+</script>
+</body>
+</html>"""
+
 if __name__ == '__main__':
+    import argparse
     import uvicorn
-    uvicorn.run(app, host='0.0.0.0', port=8080)
+    parser = argparse.ArgumentParser(description='BiRefNet Inference Server')
+    parser.add_argument('--host', default='0.0.0.0', help='绑定 IP (默认 0.0.0.0)')
+    parser.add_argument('--port', type=int, default=8080, help='绑定端口 (默认 8080)')
+    args = parser.parse_args()
+    uvicorn.run(app, host=args.host, port=args.port)
